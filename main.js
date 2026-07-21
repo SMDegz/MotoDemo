@@ -23,12 +23,23 @@ const sun = new THREE.DirectionalLight(0xffe6bd, 2.0); sun.position.set(-42, 56,
 // 同一套高度函数同时驱动地形与车辆离地高度，形成可驾驶的起伏山地。
 // 长距离闭环：从峡谷出发，经连续发卡弯登上山脊，再沿另一侧下山回到起点。
 const loopPoints = [
-  [0, 3, 8], [7, 11, -46], [-28, 24, -88], [-68, 42, -119], [-111, 59, -86],
-  [-128, 71, -22], [-106, 79, 48], [-60, 86, 99], [4, 77, 119], [61, 60, 100],
-  [106, 39, 61], [121, 22, 9], [104, 10, -44], [67, 4, -89], [22, 3, -71]
+  [0, 3, 8], [-4, 10, -45], [-37, 25, -96], [-89, 46, -121], [-133, 65, -72],
+  [-142, 78, -4], [-116, 88, 70], [-61, 92, 125], [13, 80, 146], [80, 58, 124],
+  [129, 35, 70], [143, 16, -7], [117, 5, -72], [66, 2, -116], [84, 2, -59],
+  [58, 2, -10], [20, 3, 10]
 ].map(([x, y, z]) => new THREE.Vector3(x, y, z));
 const roadCurve = new THREE.CatmullRomCurve3(loopPoints, true, 'centripetal');
 const trackGuide = Array.from({ length: 480 }, (_, i) => roadCurve.getPointAt(i / 480));
+function validateTrackClearance() {
+  const minimumGap = 25;
+  for (let i = 0; i < trackGuide.length; i++) for (let j = i + 15; j < trackGuide.length; j++) {
+    const aroundLoop = Math.min(j - i, trackGuide.length - (j - i));
+    if (aroundLoop < 30) continue;
+    const dx = trackGuide[i].x - trackGuide[j].x, dz = trackGuide[i].z - trackGuide[j].z;
+    if (dx*dx + dz*dz < minimumGap*minimumGap) console.warn('Track sections are too close:', i, j);
+  }
+}
+validateTrackClearance();
 function nearestRoad(x, z) {
   let bestD2 = Infinity, bestT = 0;
   for (let i = 0; i < trackGuide.length; i++) {
@@ -38,7 +49,7 @@ function nearestRoad(x, z) {
     const qx = a.x + abx*u, qz = a.z + abz*u, dx = x-qx, dz = z-qz, d2 = dx*dx + dz*dz;
     if (d2 < bestD2) { bestD2 = d2; bestT = (i + u) / trackGuide.length; }
   }
-  return { point: roadCurve.getPointAt(bestT % 1), distance: Math.sqrt(bestD2) };
+  return { point: roadCurve.getPointAt(bestT % 1), distance: Math.sqrt(bestD2), t: bestT % 1 };
 }
 // 路旁先急速坠入峡谷，再在远处抬升成戈壁山脉。
 function terrainHeight(x, z) {
@@ -75,7 +86,11 @@ const lineMat = new THREE.MeshBasicMaterial({ color: 0xd0a63f });
 for (let t = 0; t < 1; t += .017) {
   const p = roadCurve.getPointAt(t), tan = roadCurve.getTangentAt(t).normalize();
   const dash = new THREE.Mesh(new THREE.BoxGeometry(.20, .035, 5.2), lineMat);
-  dash.position.copy(p); dash.position.y += .12; dash.rotation.y = Math.atan2(tan.x, tan.z); scene.add(dash);
+  const side = new THREE.Vector3(tan.z, 0, -tan.x).normalize();
+  const normal = new THREE.Vector3().crossVectors(tan, side).normalize();
+  dash.position.copy(p).addScaledVector(normal, .07);
+  dash.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), tan);
+  scene.add(dash);
 }
 const railMat = new THREE.MeshStandardMaterial({ color: 0x7b6544, roughness: .8, metalness: .25 });
 for (let t = 0; t < 1; t += .032) {
@@ -124,7 +139,7 @@ let smokeCursor = 0, markTimer = 0;
 function emitSmoke(pos) { const p = smoke[smokeCursor++ % smoke.length]; p.life = 1; p.s.visible = true; p.s.position.copy(pos).add(new THREE.Vector3((Math.random()-.5)*.28,.2,(Math.random()-.5)*.28)); p.s.scale.set(.25,.25,.25); }
 
 // 模型的车头位于局部 -Z；动力学、镜头和模型统一使用这一朝向。
-const state = { x: 0, z: 8, yaw: 0, v: 0, lateral: 0, yawRate: 0, steer: 0 };
+const state = { x: 0, z: 8, yaw: 0, pitch: 0, v: 0, lateral: 0, yawRate: 0, steer: 0 };
 const LF = .92, LR = .98, MASS = 230, IZZ = 260, maxSteer = .48;
 function clamp(v,a,b) { return Math.max(a, Math.min(b,v)); }
 function damp(v, target, rate, dt) { return THREE.MathUtils.damp(v, target, rate, dt); }
@@ -166,7 +181,12 @@ function updatePhysics(dt) {
   }
   // 在道路范围内贴合连续道路样条，而不是读取有网格误差的地形高度。
   const roadSurface = nearestRoad(state.x, state.z);
-  bike.position.set(state.x, roadSurface.point.y + .10, state.z); bike.rotation.y = state.yaw;
+  const slopeProbe = 1.15;
+  const frontSurface = nearestRoad(state.x + forward.x * slopeProbe, state.z + forward.z * slopeProbe);
+  const rearSurface = nearestRoad(state.x - forward.x * slopeProbe, state.z - forward.z * slopeProbe);
+  state.pitch = damp(state.pitch, Math.atan2(frontSurface.point.y - rearSurface.point.y, slopeProbe * 2), 12, dt);
+  bike.position.set(state.x, roadSurface.point.y + .10, state.z);
+  bike.rotation.set(state.pitch, state.yaw, 0, 'YXZ');
   fork.rotation.y = state.steer;
   rearWheel.rotation.x -= state.v * dt / .37; frontWheel.rotation.x -= state.v * dt / .37;
   const lean = clamp(-state.steer * Math.abs(state.v) * .095 - state.lateral * .018, -.58, .58);
