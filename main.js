@@ -21,8 +21,27 @@ scene.add(new THREE.HemisphereLight(0xc7c0ad, 0x3c3124, 2.1));
 const sun = new THREE.DirectionalLight(0xffe6bd, 2.0); sun.position.set(-42, 56, -26); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = sun.shadow.camera.bottom = -70; sun.shadow.camera.right = sun.shadow.camera.top = 70; scene.add(sun);
 
 // 同一套高度函数同时驱动地形与车辆离地高度，形成可驾驶的起伏山地。
+// 长距离闭环：从峡谷出发，经连续发卡弯登上山脊，再沿另一侧下山回到起点。
+const loopPoints = [
+  [0, 3, 8], [7, 11, -46], [-28, 24, -88], [-68, 42, -119], [-111, 59, -86],
+  [-128, 71, -22], [-106, 79, 48], [-60, 86, 99], [4, 77, 119], [61, 60, 100],
+  [106, 39, 61], [121, 22, 9], [104, 10, -44], [67, 4, -89], [22, 3, -71]
+].map(([x, y, z]) => new THREE.Vector3(x, y, z));
+const roadCurve = new THREE.CatmullRomCurve3(loopPoints, true, 'centripetal');
+const trackGuide = Array.from({ length: 480 }, (_, i) => roadCurve.getPointAt(i / 480));
+function nearestRoad(x, z) {
+  let best = trackGuide[0], bestD2 = Infinity;
+  for (const p of trackGuide) { const dx = x - p.x, dz = z - p.z, d2 = dx*dx + dz*dz; if (d2 < bestD2) { bestD2 = d2; best = p; } }
+  return { point: best, distance: Math.sqrt(bestD2) };
+}
+// 路旁先急速坠入峡谷，再在远处抬升成戈壁山脉。
 function terrainHeight(x, z) {
-  return Math.sin(x * .025 + z * .011) * 3.0 + Math.cos(z * .037) * 2.2 + Math.sin((x - z) * .018) * 2.8;
+  const near = nearestRoad(x, z), d = near.distance;
+  if (d < 8.5) return near.point.y - .18;
+  const cliff = -Math.pow(Math.min(d - 8.5, 22) / 22, 1.1) * 28;
+  const mountain = Math.pow(Math.max(0, d - 25) / 58, 1.13) * 55;
+  const strata = Math.sin(x*.075 + z*.028) * 2.4 + Math.cos(z*.09 - x*.02) * 1.8;
+  return near.point.y + cliff + Math.min(mountain, 72) + strata;
 }
 const terrainGeo = new THREE.PlaneGeometry(430, 430, 120, 120);
 const terrainPos = terrainGeo.attributes.position;
@@ -34,17 +53,10 @@ terrainGeo.computeVertexNormals();
 const ground = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({ color: 0x79644a, roughness: 1, flatShading: true }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
-// 七拐八绕的长距离闭环山路：末段自然接回起点。
-const loopPoints = [
-  [0, 8], [8, -64], [-45, -126], [-112, -91], [-128, -12], [-103, 62],
-  [-48, 121], [24, 142], [91, 106], [132, 39], [119, -41], [72, -112], [20, -93]
-].map(([x, z]) => new THREE.Vector3(x, terrainHeight(x, z) + .14, z));
-const roadCurve = new THREE.CatmullRomCurve3(loopPoints, true, 'centripetal');
 const roadMat = new THREE.MeshStandardMaterial({ color: 0x292622, roughness: .92 });
-const roadVerts = [], roadIndices = [], samples = 560, roadWidth = 14;
+const roadVerts = [], roadIndices = [], samples = 560, roadWidth = 11;
 for (let i = 0; i <= samples; i++) {
   const t = i / samples, p = roadCurve.getPointAt(t), tangent = roadCurve.getTangentAt(t).normalize();
-  p.y = terrainHeight(p.x, p.z) + .14;
   const side = new THREE.Vector3(tangent.z, 0, -tangent.x).normalize();
   const left = p.clone().addScaledVector(side, roadWidth / 2); left.y += .055;
   const right = p.clone().addScaledVector(side, -roadWidth / 2); right.y += .055;
@@ -55,17 +67,17 @@ const roadGeo = new THREE.BufferGeometry(); roadGeo.setAttribute('position', new
 const road = new THREE.Mesh(roadGeo, roadMat); road.receiveShadow = true; scene.add(road);
 const lineMat = new THREE.MeshBasicMaterial({ color: 0xd0a63f });
 for (let t = 0; t < 1; t += .017) {
-  const p = roadCurve.getPointAt(t), tan = roadCurve.getTangentAt(t).normalize(); p.y = terrainHeight(p.x, p.z) + .14;
+  const p = roadCurve.getPointAt(t), tan = roadCurve.getTangentAt(t).normalize();
   const dash = new THREE.Mesh(new THREE.BoxGeometry(.20, .035, 5.2), lineMat);
   dash.position.copy(p); dash.position.y += .12; dash.rotation.y = Math.atan2(tan.x, tan.z); scene.add(dash);
 }
 const railMat = new THREE.MeshStandardMaterial({ color: 0x7b6544, roughness: .8, metalness: .25 });
 for (let t = 0; t < 1; t += .032) {
-  const p = roadCurve.getPointAt(t), tan = roadCurve.getTangentAt(t).normalize(), side = new THREE.Vector3(tan.z,0,-tan.x).normalize(); p.y = terrainHeight(p.x, p.z) + .14;
+  const p = roadCurve.getPointAt(t), tan = roadCurve.getTangentAt(t).normalize(), side = new THREE.Vector3(tan.z,0,-tan.x).normalize();
   for (const sign of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(.11,.6,.11), railMat); post.position.copy(p).addScaledVector(side,sign*(roadWidth/2+.35)); post.position.y+=.34; post.castShadow=true; scene.add(post); }
 }
 function envBox(w,h,d,color,x,z,y=0) { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({color,roughness:.9})); m.position.set(x,y+h/2,z); m.castShadow=m.receiveShadow=true; scene.add(m); return m; }
-function mountain(x,z,scale) { const g = new THREE.IcosahedronGeometry(scale,1); const m = new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x665544,roughness:1,flatShading:true})); m.position.set(x,scale*.45,z); m.scale.y=.72; m.castShadow=true; scene.add(m); }
+function mountain(x,z,scale) { const g = new THREE.IcosahedronGeometry(scale,1); const m = new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x665544,roughness:1,flatShading:true})); m.position.set(x,terrainHeight(x,z)+scale*.35,z); m.scale.y=.72; m.castShadow=true; scene.add(m); }
 for (let i=0;i<52;i++) { const a=i*2.399, r=155+(i%5)*13; mountain(Math.cos(a)*r,Math.sin(a)*r,10+(i%5)*6); }
 for (let i=0;i<65;i++) { const a=Math.random()*Math.PI*2, r=22+Math.random()*175, x=Math.cos(a)*r, z=Math.sin(a)*r; const rock=envBox(.5+Math.random()*1.8,.35+Math.random()*1.1,.5+Math.random()*1.4,0x5c4c3b,x,z,terrainHeight(x,z)); rock.rotation.y=Math.random()*3; }
 // 断裂高架：两段倾斜的残骸横跨沙漠公路。
@@ -74,7 +86,7 @@ const overpassA=envBox(19,1.4,6,0x4d4941,-8,-55,10); overpassA.rotation.z=-.08;
 const overpassB=envBox(14,1.4,6,0x4d4941,13,-55,12); overpassB.rotation.z=.17;
 for (const x of [-23,23]) envBox(.5,2.2,8,0x916f3b,x,-56,1.2);
 
-function enemyBike(x,z,color=0x303137) { const g=new THREE.Group(); g.position.set(x,.1,z); const body=new THREE.Mesh(new THREE.BoxGeometry(.45,.26,1.35),new THREE.MeshStandardMaterial({color,roughness:.5})); body.position.y=.62; body.rotation.x=-.18; body.castShadow=true; g.add(body); const rider=new THREE.Mesh(new THREE.CapsuleGeometry(.18,.55,4,8),new THREE.MeshStandardMaterial({color:0x1c2020,roughness:.8})); rider.position.set(0,1.05,.08); rider.rotation.x=.35; rider.castShadow=true; g.add(rider); for (const wz of [-.72,.72]) { const w=new THREE.Mesh(new THREE.CylinderGeometry(.26,.26,.14,12),new THREE.MeshStandardMaterial({color:0x151515})); w.rotation.z=Math.PI/2; w.position.set(0,.3,wz); g.add(w); } const sword=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,1.25),new THREE.MeshStandardMaterial({color:0xc5c5b6,metalness:.8,roughness:.2})); sword.position.set(.52,1.15,-.15); sword.rotation.z=-.65; sword.rotation.x=.6; g.add(sword); scene.add(g); return g; }
+function enemyBike(x,z,color=0x303137) { const g=new THREE.Group(); g.position.set(x,terrainHeight(x,z)+.1,z); const body=new THREE.Mesh(new THREE.BoxGeometry(.45,.26,1.35),new THREE.MeshStandardMaterial({color,roughness:.5})); body.position.y=.62; body.rotation.x=-.18; body.castShadow=true; g.add(body); const rider=new THREE.Mesh(new THREE.CapsuleGeometry(.18,.55,4,8),new THREE.MeshStandardMaterial({color:0x1c2020,roughness:.8})); rider.position.set(0,1.05,.08); rider.rotation.x=.35; rider.castShadow=true; g.add(rider); for (const wz of [-.72,.72]) { const w=new THREE.Mesh(new THREE.CylinderGeometry(.26,.26,.14,12),new THREE.MeshStandardMaterial({color:0x151515})); w.rotation.z=Math.PI/2; w.position.set(0,.3,wz); g.add(w); } const sword=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,1.25),new THREE.MeshStandardMaterial({color:0xc5c5b6,metalness:.8,roughness:.2})); sword.position.set(.52,1.15,-.15); sword.rotation.z=-.65; sword.rotation.x=.6; g.add(sword); scene.add(g); return g; }
 const enemyBikes=[enemyBike(-3,-19,0x7e3028),enemyBike(3,-34,0x302c2b),enemyBike(-2.2,-53,0x5a543b),enemyBike(3.4,-77,0x46373b)];
 
 const bike = new THREE.Group(); scene.add(bike);
@@ -137,6 +149,15 @@ function updatePhysics(dt) {
   const right = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
   state.x += (forward.x * state.v + right.x * state.lateral) * dt;
   state.z += (forward.z * state.v + right.z * state.lateral) * dt;
+  // 悬崖边缘的粗略道路约束：冲出柏油路会急剧失速并被坡面推回。
+  const nearest = nearestRoad(state.x, state.z), roadEdge = roadWidth * .5 - .35;
+  if (nearest.distance > roadEdge) {
+    const pull = Math.min(1, (nearest.distance - roadEdge) * dt * 1.7);
+    state.x += (nearest.point.x - state.x) * pull;
+    state.z += (nearest.point.z - state.z) * pull;
+    state.v *= Math.max(0, 1 - dt * 2.8);
+    state.lateral *= Math.max(0, 1 - dt * 3.5);
+  }
   bike.position.set(state.x, terrainHeight(state.x, state.z) + .10, state.z); bike.rotation.y = state.yaw;
   fork.rotation.y = state.steer;
   rearWheel.rotation.x -= state.v * dt / .37; frontWheel.rotation.x -= state.v * dt / .37;
