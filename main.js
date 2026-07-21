@@ -1,6 +1,6 @@
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x081018);
-scene.fog = new THREE.Fog(0x081018, 38, 130);
+scene.background = new THREE.Color(0xaaa18d);
+scene.fog = new THREE.Fog(0xaaa18d, 30, 145);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -17,18 +17,30 @@ const keys = {};
 addEventListener('keydown', e => { keys[e.code] = true; if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight'].includes(e.code)) e.preventDefault(); });
 addEventListener('keyup', e => keys[e.code] = false);
 
-scene.add(new THREE.HemisphereLight(0x9bcde1, 0x18222a, 2.0));
-const sun = new THREE.DirectionalLight(0xffeed6, 2.6); sun.position.set(-42, 56, -26); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = sun.shadow.camera.bottom = -70; sun.shadow.camera.right = sun.shadow.camera.top = 70; scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xc7c0ad, 0x3c3124, 2.1));
+const sun = new THREE.DirectionalLight(0xffe6bd, 2.0); sun.position.set(-42, 56, -26); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = sun.shadow.camera.bottom = -70; sun.shadow.camera.right = sun.shadow.camera.top = 70; scene.add(sun);
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshStandardMaterial({ color: 0x263038, roughness: .92 }));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(360, 360), new THREE.MeshStandardMaterial({ color: 0x79644a, roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
-const grid = new THREE.GridHelper(250, 50, 0x42616b, 0x344a52); grid.position.y = .012; scene.add(grid);
+const roadMat = new THREE.MeshStandardMaterial({ color: 0x272421, roughness: .9 });
+const road = new THREE.Mesh(new THREE.PlaneGeometry(15, 330), roadMat); road.rotation.x = -Math.PI / 2; road.position.y = .025; road.receiveShadow = true; scene.add(road);
+const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x443c32, roughness: 1 });
+for (const x of [-8.3, 8.3]) { const shoulder = new THREE.Mesh(new THREE.PlaneGeometry(1.7,330), shoulderMat); shoulder.rotation.x=-Math.PI/2; shoulder.position.set(x,.02,0); scene.add(shoulder); }
+const lineMat = new THREE.MeshBasicMaterial({ color: 0xd0a63f });
+for (let z=-155; z<160; z+=11) { const line = new THREE.Mesh(new THREE.PlaneGeometry(.22,5.8), lineMat); line.rotation.x=-Math.PI/2; line.position.set(0,.045,z); scene.add(line); }
+function envBox(w,h,d,color,x,z,y=0) { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({color,roughness:.9})); m.position.set(x,y+h/2,z); m.castShadow=m.receiveShadow=true; scene.add(m); return m; }
+function mountain(x,z,scale) { const g = new THREE.IcosahedronGeometry(scale,1); const m = new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x665544,roughness:1,flatShading:true})); m.position.set(x,scale*.45,z); m.scale.y=.72; m.castShadow=true; scene.add(m); }
+for (let i=0;i<34;i++) { const side=i%2?1:-1; mountain(side*(26+(i%5)*12), -145+i*9, 8+(i%4)*5); }
+for (let i=0;i<30;i++) { const x=(i%2?1:-1)*(12+Math.random()*28), z=-145+Math.random()*300; const rock=envBox(.5+Math.random()*1.8,.35+Math.random()*1.1,.5+Math.random()*1.4,0x5c4c3b,x,z); rock.rotation.y=Math.random()*3; }
+// 断裂高架：两段倾斜的残骸横跨沙漠公路。
+for (const x of [-16,16]) for (const z of [-68,-42]) envBox(1.7,11,1.7,0x60574b,x,z);
+const overpassA=envBox(19,1.4,6,0x4d4941,-8,-55,10); overpassA.rotation.z=-.08;
+const overpassB=envBox(14,1.4,6,0x4d4941,13,-55,12); overpassB.rotation.z=.17;
+for (const x of [-23,23]) envBox(.5,2.2,8,0x916f3b,x,-56,1.2);
 
-function box(w, h, d, color, x, z) { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({ color, roughness: .75 })); m.position.set(x,h/2,z); m.castShadow = m.receiveShadow = true; scene.add(m); }
-for (let i = -54; i <= 54; i += 18) { box(.7,.7,15,0xf1e0ae,i,-34); box(.7,.7,15,0xf1e0ae,i,34); }
-for (let i = -34; i <= 34; i += 17) { box(15,.7,.7,0xf1e0ae,-54,i); box(15,.7,.7,0xf1e0ae,54,i); }
-for (let i = 0; i < 20; i++) { const a = i * 2.4; const r = 73 + (i % 4) * 10; box(2 + i % 3, 4 + (i % 5) * 2, 2 + (i % 2), 0x17242c, Math.cos(a)*r, Math.sin(a)*r); }
+function enemyBike(x,z,color=0x303137) { const g=new THREE.Group(); g.position.set(x,.1,z); const body=new THREE.Mesh(new THREE.BoxGeometry(.45,.26,1.35),new THREE.MeshStandardMaterial({color,roughness:.5})); body.position.y=.62; body.rotation.x=-.18; body.castShadow=true; g.add(body); const rider=new THREE.Mesh(new THREE.CapsuleGeometry(.18,.55,4,8),new THREE.MeshStandardMaterial({color:0x1c2020,roughness:.8})); rider.position.set(0,1.05,.08); rider.rotation.x=.35; rider.castShadow=true; g.add(rider); for (const wz of [-.72,.72]) { const w=new THREE.Mesh(new THREE.CylinderGeometry(.26,.26,.14,12),new THREE.MeshStandardMaterial({color:0x151515})); w.rotation.z=Math.PI/2; w.position.set(0,.3,wz); g.add(w); } const sword=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,1.25),new THREE.MeshStandardMaterial({color:0xc5c5b6,metalness:.8,roughness:.2})); sword.position.set(.52,1.15,-.15); sword.rotation.z=-.65; sword.rotation.x=.6; g.add(sword); scene.add(g); return g; }
+const enemyBikes=[enemyBike(-3,-19,0x7e3028),enemyBike(3,-34,0x302c2b),enemyBike(-2.2,-53,0x5a543b),enemyBike(3.4,-77,0x46373b)];
 
 const bike = new THREE.Group(); scene.add(bike);
 const dark = new THREE.MeshStandardMaterial({ color: 0x111419, roughness: .5, metalness: .5 });
