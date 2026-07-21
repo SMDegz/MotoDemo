@@ -30,9 +30,15 @@ const loopPoints = [
 const roadCurve = new THREE.CatmullRomCurve3(loopPoints, true, 'centripetal');
 const trackGuide = Array.from({ length: 480 }, (_, i) => roadCurve.getPointAt(i / 480));
 function nearestRoad(x, z) {
-  let best = trackGuide[0], bestD2 = Infinity;
-  for (const p of trackGuide) { const dx = x - p.x, dz = z - p.z, d2 = dx*dx + dz*dz; if (d2 < bestD2) { bestD2 = d2; best = p; } }
-  return { point: best, distance: Math.sqrt(bestD2) };
+  let bestD2 = Infinity, bestT = 0;
+  for (let i = 0; i < trackGuide.length; i++) {
+    const a = trackGuide[i], b = trackGuide[(i + 1) % trackGuide.length];
+    const abx = b.x - a.x, abz = b.z - a.z, len2 = abx*abx + abz*abz;
+    const u = Math.max(0, Math.min(1, ((x-a.x)*abx + (z-a.z)*abz) / len2));
+    const qx = a.x + abx*u, qz = a.z + abz*u, dx = x-qx, dz = z-qz, d2 = dx*dx + dz*dz;
+    if (d2 < bestD2) { bestD2 = d2; bestT = (i + u) / trackGuide.length; }
+  }
+  return { point: roadCurve.getPointAt(bestT % 1), distance: Math.sqrt(bestD2) };
 }
 // 路旁先急速坠入峡谷，再在远处抬升成戈壁山脉。
 function terrainHeight(x, z) {
@@ -158,7 +164,9 @@ function updatePhysics(dt) {
     state.v *= Math.max(0, 1 - dt * 2.8);
     state.lateral *= Math.max(0, 1 - dt * 3.5);
   }
-  bike.position.set(state.x, terrainHeight(state.x, state.z) + .10, state.z); bike.rotation.y = state.yaw;
+  // 在道路范围内贴合连续道路样条，而不是读取有网格误差的地形高度。
+  const roadSurface = nearestRoad(state.x, state.z);
+  bike.position.set(state.x, roadSurface.point.y + .10, state.z); bike.rotation.y = state.yaw;
   fork.rotation.y = state.steer;
   rearWheel.rotation.x -= state.v * dt / .37; frontWheel.rotation.x -= state.v * dt / .37;
   const lean = clamp(-state.steer * Math.abs(state.v) * .095 - state.lateral * .018, -.58, .58);
