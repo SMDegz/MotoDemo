@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Motor Drift — Bicycle Model</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="hud">
+      <div class="eyebrow">BICYCLE MODEL / DRIFT LAB</div>
+      <h1>MOTOR DRIFT</h1>
+      <div class="readout"><span>速度</span><strong id="speed">000</strong><small>km/h</small></div>
+      <div class="readout"><span>侧滑角</span><strong id="slip">0.0</strong><small>°</small></div>
+      <div id="drift-state">GRIP</div>
+    </div>
+    <div id="help">
+      <b>↑</b><b>↓</b> 油门 / 刹车　 <b>←</b><b>→</b> 转向　 <b>SHIFT</b> 漂移<br />
+      <span>松开 Shift 恢复抓地，反打方向可控住甩尾</span>
+    </div>
+    <div id="loading">Loading track…</div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+    <script src="./main.js"></script>
+  </body>
+</html>
