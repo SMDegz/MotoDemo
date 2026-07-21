@@ -58,7 +58,8 @@ for (let i=0; i<45; i++) { const s = new THREE.Sprite(smokeMat.clone()); s.visib
 let smokeCursor = 0, markTimer = 0;
 function emitSmoke(pos) { const p = smoke[smokeCursor++ % smoke.length]; p.life = 1; p.s.visible = true; p.s.position.copy(pos).add(new THREE.Vector3((Math.random()-.5)*.28,.2,(Math.random()-.5)*.28)); p.s.scale.set(.25,.25,.25); }
 
-const state = { x: 0, z: 4, yaw: Math.PI, v: 0, lateral: 0, yawRate: 0, steer: 0 };
+// 模型的车头位于局部 -Z；动力学、镜头和模型统一使用这一朝向。
+const state = { x: 0, z: 4, yaw: 0, v: 0, lateral: 0, yawRate: 0, steer: 0 };
 const LF = .92, LR = .98, MASS = 230, IZZ = 260, maxSteer = .48;
 function clamp(v,a,b) { return Math.max(a, Math.min(b,v)); }
 function damp(v, target, rate, dt) { return THREE.MathUtils.damp(v, target, rate, dt); }
@@ -85,7 +86,7 @@ function updatePhysics(dt) {
   state.yawRate += (LF * frontFy - LR * rearFy) / IZZ * dt;
   state.lateral = clamp(state.lateral, -22, 22);
   state.yaw += state.yawRate * dt;
-  const forward = new THREE.Vector3(Math.sin(state.yaw), 0, Math.cos(state.yaw));
+  const forward = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
   const right = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
   state.x += (forward.x * state.v + right.x * state.lateral) * dt;
   state.z += (forward.z * state.v + right.z * state.lateral) * dt;
@@ -108,7 +109,7 @@ function animate() {
   markTimer -= dt;
   if (energetic && markTimer <= 0) { markTimer = .075; const m = new THREE.Mesh(markGeo, markMat.clone()); m.position.copy(rear); m.position.y = .025; m.rotation.x = -Math.PI/2; m.rotation.z = -state.yaw; tireMarks.add(m); if (tireMarks.children.length > 420) tireMarks.remove(tireMarks.children[0]); emitSmoke(rear); }
   for (const p of smoke) if (p.life > 0) { p.life -= dt * .75; if (p.life <= 0) p.s.visible = false; else { p.s.position.y += dt*.5; p.s.scale.addScalar(dt*.8); p.s.material.opacity = p.life * .26; } }
-  const forward = new THREE.Vector3(Math.sin(state.yaw),0,Math.cos(state.yaw));
+  const forward = new THREE.Vector3(-Math.sin(state.yaw),0,-Math.cos(state.yaw));
   const right = new THREE.Vector3(Math.cos(state.yaw),0,-Math.sin(state.yaw));
   const camTarget = bike.position.clone().add(new THREE.Vector3(0, .7, 0));
   const desiredCam = bike.position.clone().addScaledVector(forward, -8.5 - Math.abs(state.v)*.065).addScaledVector(right, -state.lateral*.08).add(new THREE.Vector3(0,4.3,0));
