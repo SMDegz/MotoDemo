@@ -166,12 +166,21 @@ function installDetailedBike(gltf) {
   model.scale.setScalar(2.35 / Math.max(size.x, size.z)); model.updateMatrixWorld(true);
   const scaledBounds = new THREE.Box3().setFromObject(model), center = scaledBounds.getCenter(new THREE.Vector3());
   model.position.x -= center.x; model.position.z -= center.z; model.position.y -= scaledBounds.min.y;
-  detailedBike.add(model); detailedBike.visible = true;
+  // Suzuki 模型来自 Z-up / X-forward 坐标系；转换到本场景的 Y-up / -Z-forward。
+  const headingFix = new THREE.Group(), axisFix = new THREE.Group();
+  headingFix.rotation.y = Math.PI / 2; axisFix.rotation.x = -Math.PI / 2;
+  axisFix.add(model); headingFix.add(axisFix); detailedBike.add(headingFix); detailedBike.visible = true;
   frame.visible = false;
+  document.querySelector('#loading').classList.add('done');
 }
 function loadDetailedModel() {
   const loader = new window.GLTFLoader();
-  loader.load('./assets/models/motorcycle.glb', installDetailedBike, undefined, error => console.warn('Could not load motorcycle model:', error));
+  loader.load('./assets/models/motorcycle.glb', installDetailedBike, undefined, error => {
+    console.warn('Could not load motorcycle model:', error);
+    frame.visible = true;
+    document.querySelector('#loading').textContent = 'Model loading failed — using fallback bike.';
+    document.querySelector('#loading').classList.add('done');
+  });
 }
 if (window.GLTFLoader) loadDetailedModel();
 else window.addEventListener('gltf-loader-ready', loadDetailedModel, { once: true });
@@ -202,6 +211,8 @@ mesh(new THREE.SphereGeometry(.205,14,10), dark, new THREE.Vector3(0,.79,-.25), 
 mesh(new THREE.SphereGeometry(.15,12,8), new THREE.MeshStandardMaterial({color:0x202b2e,metalness:.5,roughness:.2}), new THREE.Vector3(0,.78,-.42), playerRider);
 for (const x of [-.22,.22]) { const arm=mesh(new THREE.CapsuleGeometry(.065,.38,4,8),riderMat,new THREE.Vector3(x,.43,-.28),playerRider); arm.rotation.x=.9; arm.rotation.z=-x*1.9; }
 mesh(new THREE.BoxGeometry(.25,.25,.35), dark, new THREE.Vector3(0,.23,.48), playerRider);
+// 开始阶段只显示加载遮罩，避免旧程序化车型在新模型到达前闪现。
+frame.visible = false;
 
 const tireMarks = new THREE.Group(); scene.add(tireMarks);
 const markGeo = new THREE.PlaneGeometry(.12, .8);
@@ -303,5 +314,4 @@ function animate() {
   renderer.render(scene,camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
-document.querySelector('#loading').classList.add('done');
 animate();
