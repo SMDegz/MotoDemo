@@ -8,6 +8,8 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.PerspectiveCamera(57, innerWidth / innerHeight, .1, 300);
@@ -19,6 +21,24 @@ addEventListener('keyup', e => keys[e.code] = false);
 
 scene.add(new THREE.HemisphereLight(0xc7c0ad, 0x3c3124, 2.1));
 const sun = new THREE.DirectionalLight(0xffe6bd, 2.0); sun.position.set(-42, 56, -26); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = sun.shadow.camera.bottom = -70; sun.shadow.camera.right = sun.shadow.camera.top = 70; scene.add(sun);
+
+function makeTexture(size, draw) {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d'); draw(ctx, size);
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return texture;
+}
+const sandTexture = makeTexture(256, (ctx, s) => {
+  ctx.fillStyle = '#806649'; ctx.fillRect(0,0,s,s);
+  for (let i=0;i<4200;i++) { const c=80+Math.random()*65, a=.08+Math.random()*.22; ctx.fillStyle=`rgba(${c+35},${c},${Math.max(20,c-30)},${a})`; ctx.fillRect(Math.random()*s,Math.random()*s,1+Math.random()*2,1); }
+  for (let i=0;i<45;i++) { ctx.strokeStyle='rgba(55,42,28,.16)'; ctx.lineWidth=1+Math.random()*2; ctx.beginPath(); ctx.moveTo(Math.random()*s,Math.random()*s); ctx.lineTo(Math.random()*s,Math.random()*s); ctx.stroke(); }
+}); sandTexture.repeat.set(42,42);
+const asphaltTexture = makeTexture(256, (ctx, s) => {
+  ctx.fillStyle='#292724'; ctx.fillRect(0,0,s,s);
+  for (let i=0;i<6200;i++) { const c=35+Math.random()*35; ctx.fillStyle=`rgba(${c},${c},${c-2},${.15+Math.random()*.25})`; ctx.fillRect(Math.random()*s,Math.random()*s,1,1); }
+  ctx.strokeStyle='rgba(7,7,6,.42)'; ctx.lineWidth=1.2; for(let i=0;i<22;i++){const x=Math.random()*s,y=Math.random()*s;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+Math.random()*30-15,y+Math.random()*26-13);ctx.stroke();}
+}); asphaltTexture.repeat.set(1,72);
 
 // 同一套高度函数同时驱动地形与车辆离地高度，形成可驾驶的起伏山地。
 // 长距离闭环：从峡谷出发，经连续发卡弯登上山脊，再沿另一侧下山回到起点。
@@ -62,25 +82,30 @@ function terrainHeight(x, z) {
 }
 const terrainGeo = new THREE.PlaneGeometry(430, 430, 120, 120);
 const terrainPos = terrainGeo.attributes.position;
+const terrainColors = [];
 for (let i = 0; i < terrainPos.count; i++) {
   const x = terrainPos.getX(i), z = -terrainPos.getY(i);
-  terrainPos.setZ(i, terrainHeight(x, z));
+  const h = terrainHeight(x, z); terrainPos.setZ(i, h);
+  const rock = THREE.MathUtils.clamp((h - 18) / 70, 0, 1);
+  terrainColors.push(.86 - rock*.25, .68 - rock*.20, .45 - rock*.15);
 }
 terrainGeo.computeVertexNormals();
-const ground = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({ color: 0x79644a, roughness: 1, flatShading: true }));
+terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(terrainColors, 3));
+const ground = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({ map: sandTexture, vertexColors: true, roughness: 1, flatShading: true }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
-const roadMat = new THREE.MeshStandardMaterial({ color: 0x292622, roughness: .92 });
-const roadVerts = [], roadIndices = [], samples = 560, roadWidth = 11;
+const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTexture, color: 0xb9b4aa, roughness: .86, metalness: .04 });
+const roadVerts = [], roadUVs = [], roadIndices = [], samples = 560, roadWidth = 11;
 for (let i = 0; i <= samples; i++) {
   const t = i / samples, p = roadCurve.getPointAt(t), tangent = roadCurve.getTangentAt(t).normalize();
   const side = new THREE.Vector3(tangent.z, 0, -tangent.x).normalize();
   const left = p.clone().addScaledVector(side, roadWidth / 2); left.y += .055;
   const right = p.clone().addScaledVector(side, -roadWidth / 2); right.y += .055;
   roadVerts.push(left.x,left.y,left.z,right.x,right.y,right.z);
+  roadUVs.push(0, t * 72, 1, t * 72);
   if (i < samples) roadIndices.push(i*2,i*2+1,i*2+2, i*2+1,i*2+3,i*2+2);
 }
-const roadGeo = new THREE.BufferGeometry(); roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(roadVerts, 3)); roadGeo.setIndex(roadIndices); roadGeo.computeVertexNormals();
+const roadGeo = new THREE.BufferGeometry(); roadGeo.setAttribute('position', new THREE.Float32BufferAttribute(roadVerts, 3)); roadGeo.setAttribute('uv', new THREE.Float32BufferAttribute(roadUVs, 2)); roadGeo.setIndex(roadIndices); roadGeo.computeVertexNormals();
 const road = new THREE.Mesh(roadGeo, roadMat); road.receiveShadow = true; scene.add(road);
 const lineMat = new THREE.MeshBasicMaterial({ color: 0xd0a63f });
 for (let t = 0; t < 1; t += .017) {
@@ -101,6 +126,14 @@ function envBox(w,h,d,color,x,z,y=0) { const m = new THREE.Mesh(new THREE.BoxGeo
 function mountain(x,z,scale) { const g = new THREE.IcosahedronGeometry(scale,1); const m = new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x665544,roughness:1,flatShading:true})); m.position.set(x,terrainHeight(x,z)+scale*.35,z); m.scale.y=.72; m.castShadow=true; scene.add(m); }
 for (let i=0;i<52;i++) { const a=i*2.399, r=155+(i%5)*13; mountain(Math.cos(a)*r,Math.sin(a)*r,10+(i%5)*6); }
 for (let i=0;i<65;i++) { const a=Math.random()*Math.PI*2, r=22+Math.random()*175, x=Math.cos(a)*r, z=Math.sin(a)*r; const rock=envBox(.5+Math.random()*1.8,.35+Math.random()*1.1,.5+Math.random()*1.4,0x5c4c3b,x,z,terrainHeight(x,z)); rock.rotation.y=Math.random()*3; }
+// 废弃车辆、风化路牌与补丁护栏，让赛道有末日叙事感。
+for (let i=0;i<15;i++) {
+  const t=(i*.067+.035)%1, p=roadCurve.getPointAt(t), tan=roadCurve.getTangentAt(t).normalize();
+  const side=new THREE.Vector3(tan.z,0,-tan.x).normalize(), sign=i%2?1:-1;
+  const prop=envBox(1.7,.7,3.1,i%3?0x4a4035:0x6e3429,p.x+side.x*(roadWidth/2+2.2)*sign,p.z+side.z*(roadWidth/2+2.2)*sign,p.y-.12);
+  prop.rotation.y=Math.atan2(tan.x,tan.z)+(i%2?.25:-.35); prop.rotation.z=(i%3-1)*.15;
+  if (i%3===0) { const post=envBox(.12,2.5,.12,0x574b3a,p.x-side.x*(roadWidth/2+1)*sign,p.z-side.z*(roadWidth/2+1)*sign,p.y); const plate=envBox(1.3,.72,.08,0x866537,post.position.x,post.position.z,p.y+2.25); plate.rotation.y=Math.atan2(tan.x,tan.z); }
+}
 // 断裂高架：两段倾斜的残骸横跨沙漠公路。
 for (const x of [-16,16]) for (const z of [-68,-42]) envBox(1.7,11,1.7,0x60574b,x,z);
 const overpassA=envBox(19,1.4,6,0x4d4941,-8,-55,10); overpassA.rotation.z=-.08;
@@ -109,6 +142,7 @@ for (const x of [-23,23]) envBox(.5,2.2,8,0x916f3b,x,-56,1.2);
 
 function enemyBike(x,z,color=0x303137) { const g=new THREE.Group(); g.position.set(x,terrainHeight(x,z)+.1,z); const body=new THREE.Mesh(new THREE.BoxGeometry(.45,.26,1.35),new THREE.MeshStandardMaterial({color,roughness:.5})); body.position.y=.62; body.rotation.x=-.18; body.castShadow=true; g.add(body); const rider=new THREE.Mesh(new THREE.CapsuleGeometry(.18,.55,4,8),new THREE.MeshStandardMaterial({color:0x1c2020,roughness:.8})); rider.position.set(0,1.05,.08); rider.rotation.x=.35; rider.castShadow=true; g.add(rider); for (const wz of [-.72,.72]) { const w=new THREE.Mesh(new THREE.CylinderGeometry(.26,.26,.14,12),new THREE.MeshStandardMaterial({color:0x151515})); w.rotation.z=Math.PI/2; w.position.set(0,.3,wz); g.add(w); } const sword=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,1.25),new THREE.MeshStandardMaterial({color:0xc5c5b6,metalness:.8,roughness:.2})); sword.position.set(.52,1.15,-.15); sword.rotation.z=-.65; sword.rotation.x=.6; g.add(sword); scene.add(g); return g; }
 const enemyBikes=[enemyBike(-3,-19,0x7e3028),enemyBike(3,-34,0x302c2b),enemyBike(-2.2,-53,0x5a543b),enemyBike(3.4,-77,0x46373b)];
+enemyBikes.forEach((bike, i) => { bike.userData.t = (nearestRoad(bike.position.x, bike.position.z).t + i*.018) % 1; bike.userData.speed = .010 + i*.0018; });
 
 const bike = new THREE.Group(); scene.add(bike);
 const dark = new THREE.MeshStandardMaterial({ color: 0x111419, roughness: .5, metalness: .5 });
@@ -128,12 +162,22 @@ mesh(new THREE.BoxGeometry(.09,.72,.09), chromeMat, new THREE.Vector3(.18,.05,-.
 const frontWheel = new THREE.Group(); frontWheel.position.set(0,-.28,-.27); fork.add(frontWheel); mesh(wheelGeo, dark, new THREE.Vector3(), frontWheel); mesh(new THREE.CylinderGeometry(.13,.13,.195,12), chromeMat, new THREE.Vector3(), frontWheel).rotation.z = Math.PI/2;
 mesh(new THREE.BoxGeometry(.92,.06,.06), chromeMat, new THREE.Vector3(0,.47,-.16), fork);
 mesh(new THREE.SphereGeometry(.14,12,8), new THREE.MeshStandardMaterial({ color: 0xffefb2, emissive: 0xffb72e, emissiveIntensity: 1 }), new THREE.Vector3(0,.18,-.62), fork);
+mesh(new THREE.SphereGeometry(.10,10,8), new THREE.MeshStandardMaterial({ color: 0xff3a2f, emissive: 0xcc180f, emissiveIntensity: 1.5 }), new THREE.Vector3(0,.83,1.17), frame);
+// 程序化骑手：前倾骑姿会随漂移和速度摆动，后续可直接替换为 GLTF 骨骼角色。
+const playerRider = new THREE.Group(); playerRider.position.set(0,1.04,.08); frame.add(playerRider);
+const riderMat = new THREE.MeshStandardMaterial({ color:0x202327, roughness:.78 });
+const jacketMat = new THREE.MeshStandardMaterial({ color:0x384146, roughness:.72 });
+mesh(new THREE.CapsuleGeometry(.23,.55,5,10), jacketMat, new THREE.Vector3(0,.30,.10), playerRider).rotation.x=.42;
+mesh(new THREE.SphereGeometry(.205,14,10), dark, new THREE.Vector3(0,.79,-.25), playerRider);
+mesh(new THREE.SphereGeometry(.15,12,8), new THREE.MeshStandardMaterial({color:0x202b2e,metalness:.5,roughness:.2}), new THREE.Vector3(0,.78,-.42), playerRider);
+for (const x of [-.22,.22]) { const arm=mesh(new THREE.CapsuleGeometry(.065,.38,4,8),riderMat,new THREE.Vector3(x,.43,-.28),playerRider); arm.rotation.x=.9; arm.rotation.z=-x*1.9; }
+mesh(new THREE.BoxGeometry(.25,.25,.35), dark, new THREE.Vector3(0,.23,.48), playerRider);
 
 const tireMarks = new THREE.Group(); scene.add(tireMarks);
 const markGeo = new THREE.PlaneGeometry(.12, .8);
 const markMat = new THREE.MeshBasicMaterial({ color: 0x101317, transparent: true, opacity: .43, depthWrite: false });
 const smoke = [];
-const smokeMat = new THREE.MeshBasicMaterial({ color: 0xc5d4d4, transparent: true, opacity: .32, depthWrite: false });
+const smokeMat = new THREE.MeshBasicMaterial({ color: 0xd4b68a, transparent: true, opacity: .32, depthWrite: false });
 for (let i=0; i<45; i++) { const s = new THREE.Sprite(smokeMat.clone()); s.visible = false; s.scale.set(1,1,1); scene.add(s); smoke.push({ s, life: 0 }); }
 let smokeCursor = 0, markTimer = 0;
 function emitSmoke(pos) { const p = smoke[smokeCursor++ % smoke.length]; p.life = 1; p.s.visible = true; p.s.position.copy(pos).add(new THREE.Vector3((Math.random()-.5)*.28,.2,(Math.random()-.5)*.28)); p.s.scale.set(.25,.25,.25); }
@@ -191,15 +235,28 @@ function updatePhysics(dt) {
   rearWheel.rotation.x -= state.v * dt / .37; frontWheel.rotation.x -= state.v * dt / .37;
   const lean = clamp(-state.steer * Math.abs(state.v) * .095 - state.lateral * .018, -.58, .58);
   frame.rotation.z = damp(frame.rotation.z, lean, 8, dt);
+  playerRider.rotation.z = damp(playerRider.rotation.z, -lean*.38 + (drifting ? -.08*direction : 0), 9, dt);
+  playerRider.rotation.x = damp(playerRider.rotation.x, -.10 - Math.min(Math.abs(state.v)/80,.16), 7, dt);
   const slipAngle = Math.atan2(state.lateral, Math.max(1, Math.abs(state.v))) * direction;
   return { drifting, slipAngle };
 }
 
 const speedEl = document.querySelector('#speed'), slipEl = document.querySelector('#slip'), driftEl = document.querySelector('#drift-state');
+function updateRivals(dt) {
+  for (const rival of enemyBikes) {
+    rival.userData.t = (rival.userData.t + rival.userData.speed * dt) % 1;
+    const p = roadCurve.getPointAt(rival.userData.t), tan = roadCurve.getTangentAt(rival.userData.t).normalize();
+    const pitch = Math.atan2(tan.y, Math.hypot(tan.x, tan.z));
+    const yaw = Math.atan2(-tan.x, -tan.z);
+    rival.position.copy(p).add(new THREE.Vector3(0,.1,0)); rival.rotation.set(pitch, yaw, 0, 'YXZ');
+    rival.rotation.z = Math.sin(performance.now()*.0018 + rival.userData.t*19) * .08;
+  }
+}
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), .033);
   const { drifting, slipAngle } = updatePhysics(dt);
+  updateRivals(dt);
   const rear = new THREE.Vector3(0,.03,1.05).applyMatrix4(bike.matrixWorld);
   const energetic = drifting && Math.abs(state.v) > 9 && Math.abs(slipAngle) > .10;
   markTimer -= dt;
