@@ -158,6 +158,19 @@ const enemyBikes=[enemyBike(-3,-19,0x7e3028),enemyBike(3,-34,0x302c2b),enemyBike
 enemyBikes.forEach((bike, i) => { bike.userData.t = (nearestRoad(bike.position.x, bike.position.z).t + i*.018) % 1; bike.userData.speed = .010 + i*.0018; });
 
 const bike = new THREE.Group(); scene.add(bike);
+const detailedBike = new THREE.Group(); detailedBike.visible = false; bike.add(detailedBike);
+function installDetailedBike(gltf) {
+  const model = gltf.scene;
+  model.traverse(node => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = true; } });
+  const bounds = new THREE.Box3().setFromObject(model), size = bounds.getSize(new THREE.Vector3());
+  model.scale.setScalar(2.35 / Math.max(size.x, size.z)); model.updateMatrixWorld(true);
+  const scaledBounds = new THREE.Box3().setFromObject(model), center = scaledBounds.getCenter(new THREE.Vector3());
+  model.position.x -= center.x; model.position.z -= center.z; model.position.y -= scaledBounds.min.y;
+  detailedBike.add(model); detailedBike.visible = true;
+  frame.visible = false;
+}
+const gltfLoader = new THREE.GLTFLoader();
+gltfLoader.load('./assets/models/motorcycle.glb', installDetailedBike, undefined, error => console.warn('Could not load motorcycle model:', error));
 const dark = new THREE.MeshStandardMaterial({ color: 0x111419, roughness: .5, metalness: .5 });
 const red = new THREE.MeshStandardMaterial({ color: 0xdc3d2e, roughness: .35, metalness: .25 });
 const chromeMat = new THREE.MeshStandardMaterial({ color: 0xaec7cf, roughness: .25, metalness: .8 });
@@ -248,6 +261,7 @@ function updatePhysics(dt) {
   rearWheel.rotation.x -= state.v * dt / .37; frontWheel.rotation.x -= state.v * dt / .37;
   const lean = clamp(-state.steer * Math.abs(state.v) * .095 - state.lateral * .018, -.58, .58);
   frame.rotation.z = damp(frame.rotation.z, lean, 8, dt);
+  detailedBike.rotation.z = frame.rotation.z;
   playerRider.rotation.z = damp(playerRider.rotation.z, -lean*.38 + (drifting ? -.08*direction : 0), 9, dt);
   playerRider.rotation.x = damp(playerRider.rotation.x, -.10 - Math.min(Math.abs(state.v)/80,.16), 7, dt);
   const slipAngle = Math.atan2(state.lateral, Math.max(1, Math.abs(state.v))) * direction;
