@@ -62,6 +62,7 @@ const loopPoints = [
   [58, 2, -10], [20, 3, 10]
 ].map(([x, y, z]) => new THREE.Vector3(x, y, z));
 const roadCurve = new THREE.CatmullRomCurve3(loopPoints, true, 'centripetal');
+const trackLength = roadCurve.getLength();
 const trackGuide = Array.from({ length: 480 }, (_, i) => roadCurve.getPointAt(i / 480));
 function validateTrackClearance() {
   const minimumGap = 25;
@@ -230,9 +231,24 @@ function clamp(v,a,b) { return Math.max(a, Math.min(b,v)); }
 function damp(v, target, rate, dt) { return THREE.MathUtils.damp(v, target, rate, dt); }
 
 function updatePhysics(dt) {
-  const throttle = keys.ArrowUp ? 1 : 0, brake = keys.ArrowDown ? 1 : 0;
-  const steerInput = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
-  const drifting = (keys.ShiftLeft || keys.ShiftRight) && Math.abs(state.v) > 5;
+  let throttle = keys.ArrowUp ? 1 : 0, brake = keys.ArrowDown ? 1 : 0;
+  let steerInput = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
+  const autoDriving = !keys.ArrowUp && !keys.ArrowDown && !keys.ArrowLeft && !keys.ArrowRight && !keys.ShiftLeft && !keys.ShiftRight;
+  if (autoDriving) {
+    const onRoad = nearestRoad(state.x, state.z);
+    const lookAhead = THREE.MathUtils.clamp(9 + Math.abs(state.v) * .58, 10, 31);
+    const target = roadCurve.getPointAt((onRoad.t + lookAhead / trackLength) % 1);
+    const targetDir = new THREE.Vector3(target.x - state.x, 0, target.z - state.z).normalize();
+    const autoForward = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
+    const autoRight = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
+    const turnDemand = targetDir.dot(autoRight);
+    steerInput = clamp(turnDemand * 2.6, -1, 1);
+    const bend = 1 - clamp(autoForward.dot(targetDir), -1, 1);
+    const cruiseSpeed = 26 - bend * 15;
+    throttle = state.v < cruiseSpeed - .6 ? 1 : 0;
+    brake = state.v > cruiseSpeed + 1.5 ? 1 : 0;
+  }
+  const drifting = !autoDriving && (keys.ShiftLeft || keys.ShiftRight) && Math.abs(state.v) > 5;
   const steerLimit = maxSteer * (1 - clamp(Math.abs(state.v) / 52, 0, .40));
   state.steer = damp(state.steer, steerInput * steerLimit, 10, dt);
   const direction = Math.sign(state.v || 1);
@@ -280,7 +296,7 @@ function updatePhysics(dt) {
   playerRider.rotation.z = damp(playerRider.rotation.z, -lean*.38 + (drifting ? -.08*direction : 0), 9, dt);
   playerRider.rotation.x = damp(playerRider.rotation.x, -.10 - Math.min(Math.abs(state.v)/80,.16), 7, dt);
   const slipAngle = Math.atan2(state.lateral, Math.max(1, Math.abs(state.v))) * direction;
-  return { drifting, slipAngle };
+  return { drifting, slipAngle, autoDriving };
 }
 
 const speedEl = document.querySelector('#speed'), slipEl = document.querySelector('#slip'), driftEl = document.querySelector('#drift-state');
@@ -297,7 +313,7 @@ function updateRivals(dt) {
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), .033);
-  const { drifting, slipAngle } = updatePhysics(dt);
+  const { drifting, slipAngle, autoDriving } = updatePhysics(dt);
   updateRivals(dt);
   const rear = new THREE.Vector3(0,.03,1.05).applyMatrix4(bike.matrixWorld);
   const energetic = drifting && Math.abs(state.v) > 9 && Math.abs(slipAngle) > .10;
@@ -310,7 +326,7 @@ function animate() {
   const desiredCam = bike.position.clone().addScaledVector(forward, -8.5 - Math.abs(state.v)*.065).addScaledVector(right, -state.lateral*.08).add(new THREE.Vector3(0,4.3,0));
   camera.position.lerp(desiredCam, 1 - Math.exp(-dt*4)); camera.lookAt(camTarget);
   speedEl.textContent = String(Math.round(Math.abs(state.v)*3.6)).padStart(3,'0'); slipEl.textContent = (slipAngle * 180 / Math.PI).toFixed(1);
-  driftEl.textContent = energetic ? 'DRIFT' : 'GRIP'; driftEl.classList.toggle('active', energetic);
+  driftEl.textContent = autoDriving ? 'AUTO' : energetic ? 'DRIFT' : 'GRIP'; driftEl.classList.toggle('active', energetic);
   renderer.render(scene,camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
