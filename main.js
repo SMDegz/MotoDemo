@@ -172,6 +172,8 @@ function installDetailedBike(gltf) {
   headingFix.rotation.y = Math.PI / 2;
   headingFix.add(model); detailedBike.add(headingFix); detailedBike.visible = true;
   frame.visible = false;
+  resetToTrackStart();
+  gameReady = true;
   document.querySelector('#loading').classList.add('done');
 }
 function loadDetailedModel() {
@@ -179,6 +181,8 @@ function loadDetailedModel() {
   loader.load('./assets/models/motorcycle.glb', installDetailedBike, undefined, error => {
     console.warn('Could not load motorcycle model:', error);
     frame.visible = true;
+    resetToTrackStart();
+    gameReady = true;
     document.querySelector('#loading').textContent = 'Model loading failed — using fallback bike.';
     document.querySelector('#loading').classList.add('done');
   });
@@ -226,11 +230,19 @@ function emitSmoke(pos) { const p = smoke[smokeCursor++ % smoke.length]; p.life 
 
 // 模型的车头位于局部 -Z；动力学、镜头和模型统一使用这一朝向。
 const state = { x: 0, z: 8, yaw: 0, pitch: 0, v: 0, lateral: 0, yawRate: 0, steer: 0 };
+let gameReady = false;
+function resetToTrackStart() {
+  const start = roadCurve.getPointAt(0), tangent = roadCurve.getTangentAt(0).normalize();
+  state.x = start.x; state.z = start.z; state.yaw = Math.atan2(-tangent.x, -tangent.z);
+  state.pitch = 0; state.v = 0; state.lateral = 0; state.yawRate = 0; state.steer = 0;
+  bike.position.set(start.x, start.y + .10, start.z); bike.rotation.set(0, state.yaw, 0, 'YXZ');
+}
 const LF = .92, LR = .98, MASS = 230, IZZ = 260, maxSteer = .48;
 function clamp(v,a,b) { return Math.max(a, Math.min(b,v)); }
 function damp(v, target, rate, dt) { return THREE.MathUtils.damp(v, target, rate, dt); }
 
 function updatePhysics(dt) {
+  if (!gameReady) return { drifting: false, slipAngle: 0, autoDriving: false };
   let throttle = keys.ArrowUp ? 1 : 0, brake = keys.ArrowDown ? 1 : 0;
   let steerInput = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
   const autoDriving = !keys.ArrowUp && !keys.ArrowDown && !keys.ArrowLeft && !keys.ArrowRight && !keys.ShiftLeft && !keys.ShiftRight;
@@ -242,7 +254,7 @@ function updatePhysics(dt) {
     const autoForward = new THREE.Vector3(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
     const autoRight = new THREE.Vector3(Math.cos(state.yaw), 0, -Math.sin(state.yaw));
     const turnDemand = targetDir.dot(autoRight);
-    steerInput = clamp(turnDemand * 2.6, -1, 1);
+    steerInput = clamp(-turnDemand * 2.6, -1, 1);
     const bend = 1 - clamp(autoForward.dot(targetDir), -1, 1);
     const cruiseSpeed = 26 - bend * 15;
     throttle = state.v < cruiseSpeed - .6 ? 1 : 0;
