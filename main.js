@@ -166,10 +166,10 @@ function installDetailedBike(gltf) {
   model.scale.setScalar(2.35 / Math.max(size.x, size.z)); model.updateMatrixWorld(true);
   const scaledBounds = new THREE.Box3().setFromObject(model), center = scaledBounds.getCenter(new THREE.Vector3());
   model.position.x -= center.x; model.position.z -= center.z; model.position.y -= scaledBounds.min.y;
-  // Suzuki 模型来自 Z-up / X-forward 坐标系；转换到本场景的 Y-up / -Z-forward。
-  const headingFix = new THREE.Group(), axisFix = new THREE.Group();
-  headingFix.rotation.y = Math.PI / 2; axisFix.rotation.x = -Math.PI / 2;
-  axisFix.add(model); headingFix.add(axisFix); detailedBike.add(headingFix); detailedBike.visible = true;
+  // glTF 已是 Y-up；只将模型的 X-forward 朝向转换为场景使用的 -Z-forward。
+  const headingFix = new THREE.Group();
+  headingFix.rotation.y = Math.PI / 2;
+  headingFix.add(model); detailedBike.add(headingFix); detailedBike.visible = true;
   frame.visible = false;
   document.querySelector('#loading').classList.add('done');
 }
