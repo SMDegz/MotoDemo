@@ -169,8 +169,12 @@ function installDetailedBike(gltf) {
   detailedBike.add(model); detailedBike.visible = true;
   frame.visible = false;
 }
-const gltfLoader = new THREE.GLTFLoader();
-gltfLoader.load('./assets/models/motorcycle.glb', installDetailedBike, undefined, error => console.warn('Could not load motorcycle model:', error));
+function loadDetailedModel() {
+  const loader = new window.GLTFLoader();
+  loader.load('./assets/models/motorcycle.glb', installDetailedBike, undefined, error => console.warn('Could not load motorcycle model:', error));
+}
+if (window.GLTFLoader) loadDetailedModel();
+else window.addEventListener('gltf-loader-ready', loadDetailedModel, { once: true });
 const dark = new THREE.MeshStandardMaterial({ color: 0x111419, roughness: .5, metalness: .5 });
 const red = new THREE.MeshStandardMaterial({ color: 0xdc3d2e, roughness: .35, metalness: .25 });
 const chromeMat = new THREE.MeshStandardMaterial({ color: 0xaec7cf, roughness: .25, metalness: .8 });
