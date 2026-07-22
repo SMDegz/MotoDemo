@@ -39,6 +39,19 @@ const asphaltTexture = makeTexture(256, (ctx, s) => {
   for (let i=0;i<6200;i++) { const c=35+Math.random()*35; ctx.fillStyle=`rgba(${c},${c},${c-2},${.15+Math.random()*.25})`; ctx.fillRect(Math.random()*s,Math.random()*s,1,1); }
   ctx.strokeStyle='rgba(7,7,6,.42)'; ctx.lineWidth=1.2; for(let i=0;i<22;i++){const x=Math.random()*s,y=Math.random()*s;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+Math.random()*30-15,y+Math.random()*26-13);ctx.stroke();}
 }); asphaltTexture.repeat.set(1,72);
+const textureLoader = new THREE.TextureLoader();
+function loadMaterialTexture(path, repeatX, repeatY, isColor = false) {
+  const texture = textureLoader.load(path);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  if (isColor) texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+const terrainMap = loadMaterialTexture('./assets/textures/ground_rock_diff_1k.jpg', 42, 42, true);
+const terrainNormal = loadMaterialTexture('./assets/textures/ground_rock_normal_1k.jpg', 42, 42);
+const roadMap = loadMaterialTexture('./assets/textures/asphalt_diff_1k.jpg', 1, 1, true);
+const roadNormal = loadMaterialTexture('./assets/textures/asphalt_normal_1k.jpg', 1, 1);
 
 // 同一套高度函数同时驱动地形与车辆离地高度，形成可驾驶的起伏山地。
 // 长距离闭环：从峡谷出发，经连续发卡弯登上山脊，再沿另一侧下山回到起点。
@@ -91,10 +104,10 @@ for (let i = 0; i < terrainPos.count; i++) {
 }
 terrainGeo.computeVertexNormals();
 terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(terrainColors, 3));
-const ground = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({ map: sandTexture, vertexColors: true, roughness: 1, flatShading: true }));
+const ground = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({ map: terrainMap, normalMap: terrainNormal, normalScale: new THREE.Vector2(.55,.55), vertexColors: true, roughness: .98, flatShading: true }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
-const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTexture, color: 0xb9b4aa, roughness: .86, metalness: .04 });
+const roadMat = new THREE.MeshStandardMaterial({ map: roadMap, normalMap: roadNormal, normalScale: new THREE.Vector2(.72,.72), color: 0xc9c5ba, roughness: .83, metalness: .04 });
 const roadVerts = [], roadUVs = [], roadIndices = [], samples = 560, roadWidth = 11;
 for (let i = 0; i <= samples; i++) {
   const t = i / samples, p = roadCurve.getPointAt(t), tangent = roadCurve.getTangentAt(t).normalize();
